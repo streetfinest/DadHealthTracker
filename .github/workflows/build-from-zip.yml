@@ -1,4 +1,4 @@
-name: Build APK From Uploaded ZIP
+name: Build Java APK From ZIP
 
 on:
   workflow_dispatch:
@@ -14,98 +14,35 @@ jobs:
       - name: Show uploaded files
         run: ls -la
 
-      - name: Extract project ZIP
+      - name: Extract Java project ZIP
         run: |
           rm -rf extracted
           mkdir extracted
-          unzip "*.zip" -d extracted
+
+          ZIP_FILE=$(ls *Java_SimpleAPK*.zip | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Java Simple APK ZIP not found. Upload DadHealthTracker_Java_SimpleAPK.zip"
+            exit 1
+          fi
+
+          echo "Using ZIP file: $ZIP_FILE"
+          unzip "$ZIP_FILE" -d extracted
+
           echo "Extracted files:"
           find extracted -maxdepth 4 -type f | head -80
 
       - name: Find Android project folder
         run: |
           PROJECT_DIR=$(find extracted -name "settings.gradle.kts" -exec dirname {} \; | head -n 1)
+
           if [ -z "$PROJECT_DIR" ]; then
             echo "No Android project found. settings.gradle.kts is missing."
             exit 1
           fi
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
           echo "Android project found at: $PROJECT_DIR"
-
-      - name: Patch AGP 9 Kotlin setup
-        run: |
-          echo "Patching Gradle files inside $PROJECT_DIR"
-
-          sed -i '/alias(libs.plugins.kotlin.android)/d' "$PROJECT_DIR/build.gradle.kts"
-          sed -i '/alias(libs.plugins.kotlin.android)/d' "$PROJECT_DIR/app/build.gradle.kts"
-          sed -i '/kotlin-android =/d' "$PROJECT_DIR/gradle/libs.versions.toml"
-
-      - name: Patch Kotlin source errors
-        run: |
-          echo "Fixing CSV exporter source file"
-
-          cat > "$PROJECT_DIR/app/src/main/java/com/streetfinest/dadhealthtracker/reports/CsvReportExporter.kt" <<'EOF'
-          package com.streetfinest.dadhealthtracker.reports
-
-          import android.content.Context
-          import android.content.Intent
-          import android.os.Environment
-          import androidx.core.content.FileProvider
-          import com.streetfinest.dadhealthtracker.data.Reading
-          import java.io.File
-          import java.time.LocalDate
-          import java.time.format.DateTimeFormatter
-
-          object CsvReportExporter {
-              fun exportAndShare(context: Context, readings: List<Reading>, days: Int) {
-                  val now = LocalDate.now()
-                  val filename = "dad_health_${days}_day_report_${now.format(DateTimeFormatter.ISO_DATE)}.csv"
-                  val folder = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
-                  val file = File(folder, filename)
-
-                  val csv = buildString {
-                      appendLine("Date,Time,Reading Context,Blood Sugar,Systolic BP,Diastolic BP,Pulse,Notes")
-                      readings.forEach { r ->
-                          appendLine(
-                              listOf(
-                                  r.date,
-                                  r.time,
-                                  r.context,
-                                  r.bloodSugar?.toString().orEmpty(),
-                                  r.systolicBp?.toString().orEmpty(),
-                                  r.diastolicBp?.toString().orEmpty(),
-                                  r.pulse?.toString().orEmpty(),
-                                  r.notes.orEmpty()
-                              ).joinToString(",") { value -> value.csvEscape() }
-                          )
-                      }
-                  }
-
-                  file.writeText(csv)
-
-                  val uri = FileProvider.getUriForFile(
-                      context,
-                      "${context.packageName}.fileprovider",
-                      file
-                  )
-
-                  val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                      type = "text/csv"
-                      putExtra(Intent.EXTRA_STREAM, uri)
-                      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                  }
-
-                  context.startActivity(Intent.createChooser(sendIntent, "Share CSV report"))
-              }
-
-              private fun String.csvEscape(): String {
-                  val escaped = replace("\"", "\"\"")
-                  return "\"$escaped\""
-              }
-          }
-          EOF
-
-          sed -i 's/exportSchema = true/exportSchema = false/' "$PROJECT_DIR/app/src/main/java/com/streetfinest/dadhealthtracker/data/DadHealthDatabase.kt"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -115,12 +52,6 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Show Android paths
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          ls -la "$ANDROID_HOME/cmdline-tools/latest/bin"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
