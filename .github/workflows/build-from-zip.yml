@@ -19,12 +19,15 @@ jobs:
           mkdir extracted
           unzip "*.zip" -d extracted
           echo "Extracted files:"
-          find extracted -maxdepth 3 -type f | head -50
+          find extracted -maxdepth 4 -type f | head -80
 
       - name: Find Android project folder
-        id: find_project
         run: |
           PROJECT_DIR=$(find extracted -name "settings.gradle.kts" -exec dirname {} \; | head -n 1)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "No Android project found. settings.gradle.kts is missing."
+            exit 1
+          fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
           echo "Android project found at: $PROJECT_DIR"
 
@@ -34,17 +37,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
-          cache-disabled: true
 
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses
-
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+          yes | sdkmanager --licenses
 
       - name: Build debug APK
         run: gradle -p "$PROJECT_DIR" :app:assembleDebug --no-daemon --stacktrace
